@@ -33,6 +33,36 @@ This Node.js script automates the process of downloading machine learning models
 
 2. Follow the prompts to select the model version, file type, and additional details.
 
+## Advanced Setup (Windows 11)
+
+To make running the script more convenient on Windows 11, you can set up a `.bat` file and create an alias for it. Here are the steps:
+
+### Creating the `.bat` File
+
+1. Create a new text file and rename it to `civitai.bat`.
+2. Open `civitai.bat` with a text editor and add the following line:
+
+    ```batch
+    node D:/scripts/civitai/civitai.mjs %*
+    ```
+
+   Replace `D:/scripts/civitai/civitai.mjs` with the full path to your `civitai.mjs` file.
+
+3. Save and close the `.bat` file.
+
+### Adding an Alias
+
+1. Search for "Environment Variables" in the Start menu and click on "Edit the system environment variables".
+2. In the System Properties window, click on the "Environment Variables" button.
+3. Under "System variables", find and select the "Path" variable, then click on "Edit".
+4. In the Edit Environment Variable window, click "New" and add the folder path where you saved `civitai.bat`.
+5. Open a new Command Prompt window.
+6. You can now use `civit` to run the script. For example:
+
+    ```bash
+    civit 'https://civitai.com/models/125352?modelVersionId=136925'
+    ```
+
 ## Contributing
 
 Feel free to fork, improve, and create a pull request.

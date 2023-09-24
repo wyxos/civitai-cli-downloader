@@ -82,7 +82,7 @@ async function main(urls) {
                 message: 'Select the file to download:',
                 choices: target.files.map((f) => ({
                     value: f.name,
-                    name: `${f.name} ${f.metadata.size} ${f.metadata.format}`
+                    name: [f.name, f.metadata.size, f.metadata.format].filter(Boolean).join(' - ')
                 })),
             },
         ]);
@@ -106,11 +106,36 @@ async function main(urls) {
             },
         ]);
 
-        const baseFileName = `${concept}_${_.snakeCase(target.name)}`;
+        const defaultBaseFileName = `${_.snakeCase(modelData.name)}_${_.snakeCase(target.name)}`;
+        const { customFileName } = await inquirer.prompt([
+            {
+                type: 'input',
+                name: 'customFileName',
+                message: `Current file name is ${defaultBaseFileName}. Enter a custom name or press Enter to proceed with the current name:`,
+            },
+        ]);
+
+        const baseFileName = `${concept}_${customFileName || defaultBaseFileName}`;
+
         const fileExtension = selectedFile.metadata.format.toLowerCase();
 
         const fileName = `${baseFileName}.${fileExtension}`;
         const savePath = path.join(saveFolder, fileName);
+
+        if (fs.existsSync(savePath)) {
+            const { overwrite } = await inquirer.prompt([
+                {
+                    type: 'confirm',
+                    name: 'overwrite',
+                    message: `${fileName} already exists. Do you want to overwrite it?`,
+                    default: false,
+                },
+            ]);
+            if (!overwrite) {
+                console.log('Skipping download.');
+                continue; // Skip to the next URL
+            }
+        }
 
         await downloadFile(selectedFile.downloadUrl, savePath);
 
