@@ -8,6 +8,14 @@ import _ from 'lodash';
 
 const pipelineAsync = promisify(pipeline);
 
+function getFileExtension(type) {
+    const extensionMap = {
+        TextualInversion: 'pt',
+    };
+    return extensionMap[type] || 'safetensors';
+}
+
+
 function extractModelId(url) {
     const urlObj = new URL(url);
     const pathParts = urlObj.pathname.split('/');
@@ -97,14 +105,18 @@ async function main(urls) {
         };
 
         const saveFolder = path.join(webUiLocation, typeFolderMap[modelData.type]);
-        const {concept} = await inquirer.prompt([
-            {
-                type: 'list',
-                name: 'concept',
-                message: 'What is the file about?',
-                choices: ['concept', 'character', 'style'],
-            },
-        ]);
+        let concept = '';
+        if (modelData.type !== 'Checkpoint') {
+            const response = await inquirer.prompt([
+                {
+                    type: 'list',
+                    name: 'concept',
+                    message: 'What is the file about?',
+                    choices: ['concept', 'character', 'style'],
+                },
+            ]);
+            concept = `${response.concept}_`;
+        }
 
         const defaultBaseFileName = `${_.snakeCase(modelData.name)}_${_.snakeCase(target.name)}`;
         const { customFileName } = await inquirer.prompt([
@@ -117,7 +129,7 @@ async function main(urls) {
 
         const baseFileName = `${concept}_${customFileName || defaultBaseFileName}`;
 
-        const fileExtension = selectedFile.metadata.format.toLowerCase();
+        const fileExtension = getFileExtension(modelData.type);
 
         const fileName = `${baseFileName}.${fileExtension}`;
         const savePath = path.join(saveFolder, fileName);
