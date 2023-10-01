@@ -1,100 +1,17 @@
-import axios from 'axios';
 import inquirer from 'inquirer';
 import fs from 'fs';
 import path from 'path';
 import {pipeline} from 'stream';
 import {promisify} from 'util';
 import _ from 'lodash';
-
-const pipelineAsync = promisify(pipeline);
-
-function getFileExtension(type) {
-    const extensionMap = {
-        TextualInversion: 'pt',
-    };
-    return extensionMap[type] || 'safetensors';
-}
-
-
-function extractModelId(url) {
-    const urlObj = new URL(url);
-    const pathParts = urlObj.pathname.split('/');
-    return pathParts[2];
-}
-
-async function fetchModelData(modelId) {
-    const url = `https://civitai.com/api/v1/models/${modelId}`;
-    const response = await axios.get(url);
-    return response.data;
-}
-
-async function getWebUiLocation() {
-    const {location} = await inquirer.prompt([
-        {
-            type: 'input',
-            name: 'location',
-            message: 'Enter the location of Stable Diffusion WebUI:',
-            default: 'D:\\sd-webui',
-        },
-    ]);
-    return location;
-}
-
-async function selectTargetObject({modelVersions, name: modelName}) {
-    const choices = modelVersions.map((v) => v.name);
-    const {target} = await inquirer.prompt([
-        {
-            type: 'list',
-            name: 'target',
-            message: `Select the version of ${modelName}:`,
-            choices,
-        },
-    ]);
-    return modelVersions.find((v) => v.name === target);
-}
-
-async function downloadFile(url, savePath) {
-    const {data, headers} = await axios({
-        url,
-        method: 'GET',
-        responseType: 'stream',
-    });
-
-    const totalLength = headers['content-length'];
-    let downloaded = 0;
-
-    data.on('data', (chunk) => {
-        downloaded += chunk.length;
-        const percentage = ((downloaded / totalLength) * 100).toFixed(2);
-        process.stdout.write(`Downloading ${percentage}%\r`);
-    });
-
-    await pipelineAsync(data, fs.createWriteStream(savePath));
-    console.log(`\nDownloaded to ${savePath}`);
-}
-
-async function downloadWithRetry(url, savePath, retries = 3, delay = 2000) {
-    try {
-        console.log('Initiating download...');
-        await downloadFile(url, savePath);
-    } catch (error) {
-        console.error('Download failed:', error);
-        if (retries > 0) {
-            console.log(`Retrying... (${retries} attempts remaining)`);
-            await new Promise(resolve => setTimeout(resolve, delay));
-            return await downloadWithRetry(url, savePath, retries - 1, delay);
-        } else {
-            throw new Error('Max retries reached');
-        }
-    }
-}
-
-function cleanFileName(fileName) {
-    return fileName.replace(/lora|character|style|lo_ra|lo_con|locon|lycoris|lyco|ly_co/gi, '')
-        .replace(/_/g, ' ')
-        .trim()
-        .replace(/\s+/g, '_');
-}
+import {getFileExtension} from "./getFileExtension.mjs";
+import {extractModelId} from "./extractModelId.mjs";
+import {getWebUiLocation} from "./getWebUiLocation.mjs";
+import {fetchModelData} from "./fetchModelData.mjs";
+import {selectTargetObject} from "./selectTargetObject.mjs";
+import {cleanFileName} from "./cleanFileName.mjs";
+import {downloadFile} from "./downloadFile.mjs";
+import {downloadWithRetry} from "./downloadWithRetry.mjs";
 
 async function main(urls) {
     const webUiLocation = await getWebUiLocation();
@@ -180,7 +97,7 @@ async function main(urls) {
             {
                 type: 'input',
                 name: 'customFileName',
-                message: `Current file name is ${defaultBaseFileName}. Enter a custom name or press Enter to proceed with the current name:`,
+                message: `Current file name is \x1b[32m${defaultBaseFileName}\x1b[0m. Enter a custom name or press Enter to proceed with the current name:`,
                 default: defaultBaseFileName
             },
         ]);
@@ -221,7 +138,7 @@ async function main(urls) {
     for (const [index, task] of downloadTasks.entries()) {
         try {
             console.log(`Initiating download for ${task.baseFileName}...`);
-            await downloadFile(task.url, task.savePath);
+            await downloadWithRetry(task.url, task.savePath);
 
             // Save JSON
             const jsonSavePath = path.join(task.saveFolder, `${task.baseFileName}.civitai.json`);
@@ -238,6 +155,10 @@ async function main(urls) {
             console.error(`Failed to download ${task.baseFileName}: ${error}`);
             failedUrls.push(task.url);
         }
+    }
+
+    if (failedUrls.length > 0) {
+        console.log('Failed to download the following URLs:', failedUrls.join(', '));
     }
 }
 
