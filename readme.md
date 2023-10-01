@@ -26,7 +26,8 @@ This Node.js script automates the process of downloading machine learning models
 1. Run the script by using the following command, replacing the URLs with the model URLs you want to download.
 
     ```bash
-    node civitai.mjs 'https://civitai.com/models/125352?modelVersionId=136925' 'https://civitai.com/models/125353?modelVersionId=136926'
+    node civitai.mjs 'https://civitai.com/models/125352?modelVersionId=111111' 'https://civitai.com/models/222222?
+   modelVersionId=333333'
     ```
 
    Note: You can pass multiple URLs separated by space.
@@ -60,7 +61,7 @@ To make running the script more convenient on Windows 11, you can set up a `.bat
 6. You can now use `civit` to run the script. For example:
 
     ```bash
-    civit 'https://civitai.com/models/125352?modelVersionId=136925'
+    civit 'https://civitai.com/models/125352?modelVersionId=111111'
     ```
 
 ## Contributing

@@ -98,6 +98,7 @@ function cleanFileName(fileName) {
 
 async function main(urls) {
     const webUiLocation = await getWebUiLocation();
+    const downloadTasks = [];
 
     // Common concept for all files
     let commonConcept = null;
@@ -129,104 +130,114 @@ async function main(urls) {
     for (const [index, url] of urls.entries()) {
         console.log(`Processing file ${index + 1} of ${urls.length}`);
 
-        try {
-            // Extract modelId from URL and call rest of the logic
-            const modelId = extractModelId(url); // Implement this function
+        // Extract modelId from URL and call rest of the logic
+        const modelId = extractModelId(url); // Implement this function
 
-            const modelData = await fetchModelData(modelId);
+        const modelData = await fetchModelData(modelId);
 
-            const target = await selectTargetObject(modelData);
-            const fileType = await inquirer.prompt([
+        const target = await selectTargetObject(modelData);
+        const fileType = await inquirer.prompt([
+            {
+                type: 'list',
+                name: 'file',
+                message: 'Select the file to download:',
+                choices: target.files.map((f) => ({
+                    value: f.name,
+                    name: [f.name, f.metadata.size, f.metadata.format].filter(Boolean).join(' - ')
+                })),
+            },
+        ]);
+
+        const selectedFile = target.files.find((f) => f.name === fileType.file);
+        const typeFolderMap = {
+            LORA: 'models/Lora',
+            LoCon: 'models/Lora',
+            Lycoris: 'models/Lora',
+            TextualInversion: 'embeddings',
+            Checkpoint: 'models/Stable-diffusion',
+        };
+
+        const saveFolder = path.join(webUiLocation, typeFolderMap[modelData.type]);
+        let concept = commonConcept;
+        if (modelData.type !== 'Checkpoint' && commonConcept === null) {
+            const response = await inquirer.prompt([
                 {
                     type: 'list',
-                    name: 'file',
-                    message: 'Select the file to download:',
-                    choices: target.files.map((f) => ({
-                        value: f.name,
-                        name: [f.name, f.metadata.size, f.metadata.format].filter(Boolean).join(' - ')
-                    })),
+                    name: 'concept',
+                    message: 'What is the file about?',
+                    choices: ['concept', 'character', 'style'],
                 },
             ]);
+            concept = `${response.concept}_`;
+        }
 
-            const selectedFile = target.files.find((f) => f.name === fileType.file);
-            const typeFolderMap = {
-                LORA: 'models/Lora',
-                LoCon: 'models/Lora',
-                Lycoris: 'models/Lora',
-                TextualInversion: 'embeddings',
-                Checkpoint: 'models/Stable-diffusion',
-            };
+        const versionRegex = /v\d+(\.\d+)?/g;
+        const match = target.name.match(versionRegex);
+        const version = match ? match[0] : "";
 
-            const saveFolder = path.join(webUiLocation, typeFolderMap[modelData.type]);
-            let concept = commonConcept;
-            if (modelData.type !== 'Checkpoint' && commonConcept === null) {
-                const response = await inquirer.prompt([
-                    {
-                        type: 'list',
-                        name: 'concept',
-                        message: 'What is the file about?',
-                        choices: ['concept', 'character', 'style'],
-                    },
-                ]);
-                concept = `${response.concept}_`;
-            }
+        const defaultBaseFileName = cleanFileName(`${_.snakeCase(modelData.name.replace(version, ""))}_${version || _.snakeCase(target.name)}`);
+        const { customFileName } = await inquirer.prompt([
+            {
+                type: 'input',
+                name: 'customFileName',
+                message: `Current file name is ${defaultBaseFileName}. Enter a custom name or press Enter to proceed with the current name:`,
+                default: defaultBaseFileName
+            },
+        ]);
 
-            const versionRegex = /v\d+(\.\d+)?/g;
-            const match = target.name.match(versionRegex);
-            const version = match ? match[0] : "";
+        const baseFileName = `${concept}_${customFileName || defaultBaseFileName}`;
 
-            const defaultBaseFileName = cleanFileName(`${_.snakeCase(modelData.name.replace(version, ""))}_${version || _.snakeCase(target.name)}`);
-            const { customFileName } = await inquirer.prompt([
+        const fileExtension = getFileExtension(modelData.type);
+
+        const fileName = `${baseFileName}.${fileExtension}`;
+        const savePath = path.join(saveFolder, fileName);
+
+        if (fs.existsSync(savePath)) {
+            const { overwrite } = await inquirer.prompt([
                 {
-                    type: 'input',
-                    name: 'customFileName',
-                    message: `Current file name is ${defaultBaseFileName}. Enter a custom name or press Enter to proceed with the current name:`,
-                    default: defaultBaseFileName
+                    type: 'confirm',
+                    name: 'overwrite',
+                    message: `${fileName} already exists. Do you want to overwrite it?`,
+                    default: false,
                 },
             ]);
-
-            const baseFileName = `${concept}_${customFileName || defaultBaseFileName}`;
-
-            const fileExtension = getFileExtension(modelData.type);
-
-            const fileName = `${baseFileName}.${fileExtension}`;
-            const savePath = path.join(saveFolder, fileName);
-
-            if (fs.existsSync(savePath)) {
-                const { overwrite } = await inquirer.prompt([
-                    {
-                        type: 'confirm',
-                        name: 'overwrite',
-                        message: `${fileName} already exists. Do you want to overwrite it?`,
-                        default: false,
-                    },
-                ]);
-                if (!overwrite) {
-                    console.log('Skipping download.');
-                    continue; // Skip to the next URL
-                }
-            }
-
-            await downloadWithRetry(selectedFile.downloadUrl, savePath);
-
-// Save JSON
-            const jsonSavePath = path.join(saveFolder, `${baseFileName}.civitai.json`);
-            fs.writeFileSync(jsonSavePath, JSON.stringify(modelData));
-
-// Download image
-            if (target.images.length > 0) {
-                const imageSavePath = path.join(saveFolder, `${baseFileName}.jpeg`);
-                await downloadFile(target.images[0].url, imageSavePath);
+            if (!overwrite) {
+                console.log('Skipping download.');
+                continue; // Skip to the next URL
             }
         }
-        catch (error){
-            console.error(`Failed to process ${url}: ${error}`);
-            failedUrls.push(url);
-        }
+
+        downloadTasks.push({
+            url: selectedFile.downloadUrl,
+            savePath,
+            baseFileName,
+            modelData,
+            target,
+            saveFolder
+        });
     }
 
-    if (failedUrls.length > 0) {
-        console.log('Failed to download the following URLs:', failedUrls.join(', '));
+    // Now download all
+    for (const [index, task] of downloadTasks.entries()) {
+        try {
+            console.log(`Initiating download for ${task.baseFileName}...`);
+            await downloadFile(task.url, task.savePath);
+
+            // Save JSON
+            const jsonSavePath = path.join(task.saveFolder, `${task.baseFileName}.civitai.json`);
+            fs.writeFileSync(jsonSavePath, JSON.stringify(task.modelData));
+
+            // Download image
+            if (task.target.images.length > 0) {
+                const imageSavePath = path.join(task.saveFolder, `${task.baseFileName}.jpeg`);
+                await downloadFile(task.target.images[0].url, imageSavePath);
+
+                console.log(`${index + 1}/${downloadTasks.length} completed.`)
+            }
+        } catch (error) {
+            console.error(`Failed to download ${task.baseFileName}: ${error}`);
+            failedUrls.push(task.url);
+        }
     }
 }
 
