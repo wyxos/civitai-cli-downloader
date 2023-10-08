@@ -1,166 +1,40 @@
-import inquirer from 'inquirer';
-import fs from 'fs';
-import path from 'path';
-import {pipeline} from 'stream';
-import {promisify} from 'util';
-import _ from 'lodash';
-import {getFileExtension} from "./getFileExtension.mjs";
-import {extractModelId} from "./extractModelId.mjs";
-import {getWebUiLocation} from "./getWebUiLocation.mjs";
-import {fetchModelData} from "./fetchModelData.mjs";
-import {selectTargetObject} from "./selectTargetObject.mjs";
-import {cleanFileName} from "./cleanFileName.mjs";
-import {downloadFile} from "./downloadFile.mjs";
-import {downloadWithRetry} from "./downloadWithRetry.mjs";
+import { program } from 'commander';
+import Rename from "./src/rename.mjs";
+import Download from "./src/download.mjs";
+import Preview from "./src/preview.mjs";
+import Info from "./src/info.mjs";
 
-async function main(urls) {
-    const webUiLocation = await getWebUiLocation();
-    const downloadTasks = [];
 
-    // Common concept for all files
-    let commonConcept = null;
-    if(urls.length > 1){
-        const { applyCommonConcept } = await inquirer.prompt([
-            {
-                type: 'confirm',
-                name: 'applyCommonConcept',
-                message: 'Do you want to apply a common concept to all files?',
-                default: false,
-            },
-        ]);
+program
+    .argument('[urls...]', 'URLs to download')
+    .action((urls) => {
+        return new Download().handle(urls)
+    });
 
-        if (applyCommonConcept) {
-            const response = await inquirer.prompt([
-                {
-                    type: 'list',
-                    name: 'concept',
-                    message: 'Select the common concept:',
-                    choices: ['concept', 'character', 'style'],
-                },
-            ]);
-            commonConcept = response.concept;
-        }
-    }
+program
+    .command('rename')
+    .description('Rename files based on conditions')
+    .action(() => {
+        new Rename().handle()
+    });
 
-    const failedUrls = [];
+program
+    .command('preview')
+    .description('Restore preview images from civitai.json')
+    .action(() => {
+        return new Preview().handle()
+    });
 
-    for (const [index, url] of urls.entries()) {
-        console.log(`Processing file ${index + 1} of ${urls.length}`);
+program
+    .command('info')
+    .description('Reset civitai.info to JSON')
+    .action(() => {
+        return new Info().handle()
+    });
 
-        // Extract modelId from URL and call rest of the logic
-        const modelId = extractModelId(url); // Implement this function
+program.parse(process.argv);
 
-        const modelData = await fetchModelData(modelId);
-
-        const target = await selectTargetObject(modelData);
-        const fileType = await inquirer.prompt([
-            {
-                type: 'list',
-                name: 'file',
-                message: 'Select the file to download:',
-                choices: target.files.map((f) => ({
-                    value: f.name,
-                    name: [f.name, f.metadata.size, f.metadata.format].filter(Boolean).join(' - ')
-                })),
-            },
-        ]);
-
-        const selectedFile = target.files.find((f) => f.name === fileType.file);
-        const typeFolderMap = {
-            LORA: 'models/Lora',
-            LoCon: 'models/Lora',
-            Lycoris: 'models/Lora',
-            TextualInversion: 'embeddings',
-            Checkpoint: 'models/Stable-diffusion',
-        };
-
-        const saveFolder = path.join(webUiLocation, typeFolderMap[modelData.type]);
-        let concept = commonConcept;
-        if (modelData.type !== 'Checkpoint' && commonConcept === null) {
-            const response = await inquirer.prompt([
-                {
-                    type: 'list',
-                    name: 'concept',
-                    message: 'What is the file about?',
-                    choices: ['concept', 'character', 'style'],
-                },
-            ]);
-            concept = `${response.concept}_`;
-        }
-
-        const versionRegex = /v\d+(\.\d+)?/g;
-        const match = target.name.match(versionRegex);
-        const version = match ? match[0] : "";
-
-        const defaultBaseFileName = cleanFileName(`${_.snakeCase(modelData.name.replace(version, ""))}_${version || _.snakeCase(target.name)}`);
-        const { customFileName } = await inquirer.prompt([
-            {
-                type: 'input',
-                name: 'customFileName',
-                message: `Current file name is \x1b[32m${defaultBaseFileName}\x1b[0m. Enter a custom name or press Enter to proceed with the current name:`,
-                default: defaultBaseFileName
-            },
-        ]);
-
-        const baseFileName = `${concept}_${customFileName || defaultBaseFileName}`;
-
-        const fileExtension = getFileExtension(modelData.type);
-
-        const fileName = `${baseFileName}.${fileExtension}`;
-        const savePath = path.join(saveFolder, fileName);
-
-        if (fs.existsSync(savePath)) {
-            const { overwrite } = await inquirer.prompt([
-                {
-                    type: 'confirm',
-                    name: 'overwrite',
-                    message: `${fileName} already exists. Do you want to overwrite it?`,
-                    default: false,
-                },
-            ]);
-            if (!overwrite) {
-                console.log('Skipping download.');
-                continue; // Skip to the next URL
-            }
-        }
-
-        downloadTasks.push({
-            url: selectedFile.downloadUrl,
-            savePath,
-            baseFileName,
-            modelData,
-            target,
-            saveFolder
-        });
-    }
-
-    // Now download all
-    for (const [index, task] of downloadTasks.entries()) {
-        try {
-            console.log(`Initiating download for ${task.baseFileName}...`);
-            await downloadWithRetry(task.url, task.savePath);
-
-            // Save JSON
-            const jsonSavePath = path.join(task.saveFolder, `${task.baseFileName}.civitai.json`);
-            fs.writeFileSync(jsonSavePath, JSON.stringify(task.modelData));
-
-            // Download image
-            if (task.target.images.length > 0) {
-                const imageSavePath = path.join(task.saveFolder, `${task.baseFileName}.jpeg`);
-                await downloadFile(task.target.images[0].url, imageSavePath);
-
-                console.log(`${index + 1}/${downloadTasks.length} completed.`)
-            }
-        } catch (error) {
-            console.error(`Failed to download ${task.baseFileName}: ${error}`);
-            failedUrls.push(task.url);
-        }
-    }
-
-    if (failedUrls.length > 0) {
-        console.log('Failed to download the following URLs:', failedUrls.join(', '));
-    }
+// If no command is specified, assume "download"
+if (!process.argv.slice(2).length) {
+    program.outputHelp();
 }
-
-const urls = process.argv.slice(2); // Assuming URLs are passed as command-line arguments
-main(urls).catch((e) => console.error(e));
