@@ -49,9 +49,14 @@ const main = async () => {
         const jsonData = JSON.parse(rawData);
         const baseName = path.basename(file, '.civitai.json');
 
-        console.log('json', jsonData)
+        const imageUrl = jsonData.modelVersions?.[0]?.images?.[0]?.url;
 
-        const imageUrl = jsonData[0]?.modelVersions?.images?.[0]?.url || jsonData?.images?.[0]?.url;
+        console.log('image url', imageUrl)
+
+        if(!imageUrl){
+            console.error('json', jsonData)
+        }
+
         if (imageUrl) {
             const imagePathWithoutExt = path.join(dir, baseName);
             await downloadImage(imageUrl, imagePathWithoutExt);

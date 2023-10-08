@@ -122,7 +122,7 @@ async function main(urls) {
         const baseFileName = `${concept ? `${concept}_` : ''}${customFileName || defaultBaseFileName}`;
 
 
-        const fileExtension = getFileExtension(modelData.type);
+        const fileExtension = getFileExtension(selectedFile.metadata.format);
 
         const fileName = `${baseFileName}.${fileExtension}`;
         const savePath = path.join(saveFolder, fileName);
