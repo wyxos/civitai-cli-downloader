@@ -119,7 +119,7 @@ async function main(urls) {
             },
         ]);
 
-        const baseFileName = `${concept ? `${concept}_` : ''}${customFileName || defaultBaseFileName}`;
+        const baseFileName = `${concept && modelData.type !== 'Checkpoint' ? `${concept}_` : ''}${customFileName || defaultBaseFileName}`;
 
 
         const fileExtension = getFileExtension(selectedFile.metadata.format);
